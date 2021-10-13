@@ -1,0 +1,125 @@
+===============Noeud controller =================
+
+mysql
+
+CREATE DATABASE cinder;
+
+GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'localhost' IDENTIFIED BY '031987';
+
+GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'%' IDENTIFIED BY '031987';
+
+. admin-openrc
+
+openstack user create --domain default --password-prompt cinder
+
+openstack role add --project service --user cinder admin
+
+openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2
+
+openstack service create --name cinderv3 --description "OpenStack Block Storage" volumev3
+
+openstack endpoint create --region RegionOne volumev2 public http://controller:8776/v2/%\(project_id\)s
+openstack endpoint create --region RegionOne volumev2 internal http://controller:8776/v2/%\(project_id\)s
+openstack endpoint create --region RegionOne volumev2 admin http://controller:8776/v2/%\(project_id\)s
+
+openstack endpoint create --region RegionOne volumev3 public http://controller:8776/v3/%\(project_id\)s
+openstack endpoint create --region RegionOne volumev3 internal http://controller:8776/v3/%\(project_id\)s
+openstack endpoint create --region RegionOne volumev3 admin http://controller:8776/v3/%\(project_id\)s
+
+apt install cinder-api cinder-scheduler
+
+Editer le fichier de configuration : /etc/cinder/cinder.conf 
+nano /etc/cinder/cinder.conf
+
+[DEFAULT]
+transport_url = rabbit://openstack:031987@controller
+auth_strategy = keystone
+my_ip = 10.0.0.11
+
+[database]
+connection = mysql+pymysql://cinder:031987@controller/cinder
+
+[keystone_authtoken]
+www_authenticate_uri = http://controller:5000
+auth_url = http://controller:5000
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = cinder
+password = 031987
+
+[oslo_concurrency]
+lock_path = /var/lib/cinder/tmp
+
+su -s /bin/sh -c "cinder-manage db sync" cinder
+
+Editer le fichier /etc/nova/nova.conf 
+nano /etc/nova/nova.conf
+
+[cinder]
+os_region_name = RegionOne
+
+service nova-api restart
+
+service cinder-scheduler restart
+service apache2 restart
+
+
+===============Noeud Storage =================
+
+apt install lvm2 thin-provisioning-tools
+
+pvcreate /dev/sdb
+
+vgcreate cinder-volumes /dev/sdb
+
+Editer le fichier : /etc/lvm/lvm.conf
+nano /etc/lvm/lvm.conf
+
+devices {
+filter = [ "a/sdb/", "r/.*/"]
+
+apt install cinder-volume -y
+apt install tgt -y (s'il n'est pas disponible sur l'hôte - prend en charg les disques iSCI)
+
+Editer le fichier de configuration : /etc/cinder/cinder.conf
+nano /etc/cinder/cinder.conf
+
+[DEFAULT]
+transport_url = rabbit://openstack:031987@controller
+auth_strategy = keystone
+my_ip = 10.0.0.41
+enabled_backends = lvm
+glance_api_servers = http://controller:9292
+
+[database]
+connection = mysql+pymysql://cinder:031987@controller/cinder
+
+[keystone_authtoken]
+www_authenticate_uri = http://controller:5000
+auth_url = http://controller:5000
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = cinder
+password = 031987
+
+[lvm]
+volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
+volume_group = cinder-volumes
+target_protocol = iscsi
+target_helper = tgtadm
+
+[oslo_concurrency]
+lock_path = /var/lib/cinder/tmp
+
+service tgt restart
+service cinder-volume restart
+
+. admin-openrc
+
+openstack volume service list
