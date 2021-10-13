@@ -1,0 +1,57 @@
+PLACEMENT 
+
+mysql
+
+create database placement;
+
+GRANT ALL PRIVILEGES ON placement.* TO 'placement'@'localhost' IDENTIFIED BY '031987';
+GRANT ALL PRIVILEGES ON placement.* TO 'placement'@'%' IDENTIFIED BY '031987';
+
+. admin-openrc
+
+openstack user create --domain default --password-prompt placement
+
+openstack role add --project service --user placement admin
+
+openstack service create --name placement --description "Openstack Placement" placement
+
+openstack endpoint create --region RegionOne placement public http://controller:8778
+openstack endpoint create --region RegionOne placement internal http://controller:8778
+openstack endpoint create --region RegionOne placement admin http://controller:8778
+
+apt install placement-api -y
+
+Editer le fichier de configuration : /etc/placement/placement.conf
+nano /etc/placement/placement.conf
+
+[placement_database]
+connection = mysql+pymysql://placement:031987@controller/placement
+
+[api]
+auth_strategy = keystone
+
+[keystone_authtoken]
+auth_url = http://controller:5000/v3
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = placement
+password = 031987
+
+su -s /bin/sh -c "placement-manage db sync" placement
+
+service apache2 restart
+
+. admin-openrc
+
+placement-status upgrade check
+
+apt install python3-pip -y
+
+pip3 install osc-placement
+
+openstack --os-placement-api-version 1.2 resource class list --sort-column name
+
+openstack --os-placement-api-version 1.6 trait list --sort-column name
