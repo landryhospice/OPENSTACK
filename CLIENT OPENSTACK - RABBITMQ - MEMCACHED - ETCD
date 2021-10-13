@@ -1,0 +1,113 @@
+
+===============Noeud controller=================
+
+#Sychronisation horloge
+apt install chrony –y
+
+#Editer le fichier de configuration "/etc/chrony/chrony.conf"
+nano /etc/chrony/chrony.conf 
+
+#Entrer la directive suivante
+allow 10.0.0.0/24 
+
+#Redémarrer le service de sychronisation horaire
+service chrony restart
+
+===============Noeud compute & block=================
+
+#Sychronisation horloge
+apt install chrony –y
+
+#Editer le fichier de configuration "/etc/chrony/chrony.conf"
+nano /etc/chrony/chrony.conf
+
+#Commenter toutes les lignes commençant par "pool *..."
+server controller iburst 
+
+#Redémarrer le service de sychronisation horaire
+service chrony restart 
+
+#Mettre à jour le système horaire sur tous les noeuds 
+chronyc sources
+
+===============Sur tous les noeuds=================
+
+#Installer les applications standards
+apt install software-properties-common 
+
+#Ajouter le référentiel du paquet victoria d'OpenStack au gestionnaire de paquets "APT"
+add-apt-repository cloud-archive:victoria
+
+#Mettre à jour les paquets
+apt update && apt dist-upgrade
+
+#Installer les commandes d'Openstack
+apt install python3-openstackclient -y
+
+===============Noeud controller=================
+
+#Installer le serveur de base de données
+apt install mariadb-server python3-pymysql -y
+
+#Créer et éditer le fichier /etc/mysql/mariadb.conf.d/99-openstack.cnf
+nano /etc/mysql/mariadb.conf.d/99-openstack.cnf
+
+#Entrer les directives 
+[mysqld]
+bind-address = 10.0.0.11
+default-storage-engine = innodb
+innodb_file_per_table = on
+max_connections = 4096
+collation-server = utf8_general_ci
+character-set-server = utf8
+
+#Redémarrer le service de base de données
+service mysql restart
+
+#Démarrer l'installation sécurisée de la base
+mysql_secure_installation
+
+#Installer RABBITMQ
+apt install rabbitmq-server -y
+
+#Créer un utilisateur rabbitmq
+rabbitmqctl add_user openstack 031987
+
+#Définir les autorisations de l'utilisateur créé
+rabbitmqctl set_permissions openstack ".*" ".*" ".*"
+
+#Installer MEMCACHED
+apt install memcached python3-memcache -y
+
+#Editer le fichier /etc/memcached.conf
+nano /etc/memcached.conf
+
+#Entrer la directive
+-l 10.0.0.11
+
+#Redémarrer le service memcached
+service memcached restart
+
+#Installer ETCD
+apt install etcd -y
+
+#Editer le fichier "/etc/default/etcd"
+nano /etc/default/etcd
+
+#Entrer les directives suivantes
+ETCD_NAME="controller"
+ETCD_DATA_DIR="/var/lib/etcd"
+ETCD_INITIAL_CLUSTER_STATE="new"
+ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster-01"
+ETCD_INITIAL_CLUSTER="controller=http://10.0.0.11:2380"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.0.0.11:2380"
+ETCD_ADVERTISE_CLIENT_URLS="http://10.0.0.11:2379"
+ETCD_LISTEN_PEER_URLS="http://0.0.0.0:2380"
+ETCD_LISTEN_CLIENT_URLS="http://10.0.0.11:2379"
+
+#Démmarrer le service etcd au démarrage du système
+systemctl enable etcd
+
+#Redémarrer le service etcd
+systemctl restart etcd
+
