@@ -1,0 +1,173 @@
+
+===============Noeud controller=================
+                                                                                         
+mysql																							
+
+create database nova_api;
+create database nova;
+create database nova_cell0;
+
+
+GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost' IDENTIFIED BY '031987';
+GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY '031987';
+
+GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY '031987';
+GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY '031987';
+
+GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'localhost' IDENTIFIED BY '031987';
+GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'%' IDENTIFIED BY '031987';
+
+. admin-openrc
+
+openstack user create --domain default --password-prompt nova
+
+openstack role add --project service --user nova admin
+
+openstack service create --name nova --description "OpenStack Compute" compute
+
+openstack endpoint create --region RegionOne compute public http://controller:8774/v2.1
+openstack endpoint create --region RegionOne compute internal http://controller:8774/v2.1
+openstack endpoint create --region RegionOne compute admin http://controller:8774/v2.1
+
+apt install nova-api nova-conductor nova-novncproxy nova-scheduler
+
+Editer le fichier de configuration : /etc/nova/nova.conf
+nano /etc/nova/nova.conf
+
+[DEFAULT]
+transport_url = rabbit://openstack:031987@controller:5672/
+my_ip = 10.0.0.11
+
+Commenter les options "log_dir" et "lock_path"
+
+[api_database]
+connection = mysql+pymysql://nova:031987@controller/nova_api
+
+[database]
+connection = mysql+pymysql://nova:031987@controller/nova
+
+[api]
+auth_strategy = keystone
+
+[keystone_authtoken]
+www_authenticate_uri = http://controller:5000/
+auth_url = http://controller:5000/
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = nova
+password = 031987
+
+[vnc]
+enabled = true
+server_listen = $my_ip
+server_proxyclient_address = $my_ip
+
+[glance]
+api_servers = http://controller:9292
+
+[oslo_concurrency]
+lock_path = /var/lib/nova/tmp
+
+[placement]
+region_name = RegionOne
+project_domain_name = Default
+project_name = service
+auth_type = password
+user_domain_name = Default
+auth_url = http://controller:5000/v3
+username = placement
+password = 031987
+
+su -s /bin/sh -c "nova-manage api_db sync" nova
+
+su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
+
+su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova
+
+su -s /bin/sh -c "nova-manage db sync" nova
+
+su -s /bin/sh -c "nova-manage cell_v2 list_cells" nova
+
+service nova-api restart
+service nova-scheduler restart
+service nova-conductor restart
+service nova-novncproxy restart
+
+
+Les fichiers log à consulter à tout moment
+
+/var/log/nova/nova-api.log
+/var/log/nova/nova-conductor.log
+/var/log/nova/nova-scheduler.log
+/var/log/nova/nova-novncproxy.log
+
+/var/log/keystone/keystone-wsgi-public.log - Pour le service Keystone
+
+===============Noeud compute=================
+
+apt install nova-compute -y
+
+Editer le fichier de configuration : /etc/nova/nova.conf
+nano /etc/nova/nova.conf
+
+[DEFAULT]
+transport_url = rabbit://openstack:031987@controller
+my_ip = 10.0.0.31
+
+[api]
+auth_strategy = keystone
+
+[keystone_authtoken]
+www_authenticate_uri = http://controller:5000/
+auth_url = http://controller:5000/
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = nova
+password = 031987
+
+[vnc]
+enabled = true
+server_listen = 0.0.0.0
+server_proxyclient_address = $my_ip
+novncproxy_base_url = http://controller:6080/vnc_auto.html
+
+[glance]
+api_servers = http://controller:9292
+
+[oslo_concurrency]
+lock_path = /var/lib/nova/tmp
+
+[placement]
+region_name = RegionOne
+project_domain_name = Default
+project_name = service
+auth_type = password
+user_domain_name = Default
+auth_url = http://controller:5000/v3
+username = placement
+password = 031987
+
+egrep -c '(vmx|svm)' /proc/cpuinfo ===> Si cette commande retourbe une valeur de 0, alors mettre "qemu" pour l'option "virt_type"
+
+[libvirt]
+virt_type = qemu
+
+service nova-compute restart
+
+Teste sur le controller la présence du noeud Compute dans la base de données
+openstack compute service list
+
+openstack compute service list --service nova-compute
+
+Découvrir d'autres noeuds de calcul
+su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova
+
+Les fichiers log à consulter à tout moment : /var/log/nova/nova-compute.log
+
+
